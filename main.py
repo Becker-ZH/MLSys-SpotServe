@@ -9,6 +9,50 @@ def estimate_migration_time(flag):
 def estimate_node_reduction_latency(n):
     return 1.0 / n
 
+def get_action_space(prior, curr):
+    action_space = []
+    if curr == 'a':
+        if prior == 'a':
+            action_space = [('a', 'a'), ('-', 'aa')]
+        elif prior == 'r':
+            action_space = [('r', 'a')]
+        else:
+            return []
+    elif curr == 'r':
+        if prior == 'a':
+            action_space = [('a', 'r'), ('ar', '-'), ('-', 'ar')]
+        elif prior == 'r':
+            action_space = [('r', 'r'), ('rr', '-')]
+        else:
+            return []          
+    else:
+        return []
+    
+    return action_space
+
+def get_optimal_latency(action_space, curr_num, num_change):
+    min_latency = float('inf')
+    opt_action = None
+    num_node = None
+
+    for x in action_space:
+        if x[1] == '-':
+            flag = 0
+        else:
+            flag = 1
+        
+        if x[1] == 'a':
+            curr_num += num_change
+        if x[1] == 'r':
+            curr_num -= num_change
+
+        curr_latency = estimate_migration_time(flag) +  estimate_node_reduction_latency(curr_num)
+        if curr_latency < min_latency:
+            opt_action, num_node = x, curr_num
+            min_latency = curr_latency
+    
+    return min_latency, opt_action, num_node
+
 def opt_strategy_gp(trace):
     total_latency_gp = []
     action_gp = []
@@ -19,7 +63,43 @@ def opt_strategy_gp(trace):
     total_latency = sum(total_latency_gp)
     return total_latency, action_gp
 
+def optimal_migration_trigger(gp_i):
+    l_i = [] 
+    # list, l_i[j] = the most updated latency for events up to step j at iter j
+    a_i = [] 
+    # list, action of i: a_i[j] = the most updated optimal action seq for events up to step j at iter j
+    # each element is a tuple (action_seq, number of nodes)
+    curr_node = 0
+    
+    for i, e in enumerate(gp_i):
+        if i == 0: 
+            continue
+        if i == 1:
+            # Get valid action space for e
+            first_event = gp_i[0]
+            action_space = get_action_space(first_event, e)
+            if first_event[0] == 'a':
+                curr_node += first_event[1]
 
+            # Find optimal action for e at iter i: min(latency(e))
+            latency, opt_action, num_node = get_optimal_latency(action_space, curr_node, e[1])
+            # update l_i
+            l_i.append(latency)
+            # update a_i
+            a_i.append((opt_action, num_node))
+        else:
+            # retrieve a_i[i-1] from a_i 
+            # each a_i is calculated based on a_i[i-1]: pai_star = J(pai_minus_1_star)
+            prior_action_seq, prior_num_node = a_i[i - 1][0], a_i[i - 1][1]
+            last_step_prior_action = prior_action_seq[-1]
+
+            # get valid action space for e based on a_i[i-1]
+            action_space = get_action_space(last_step_prior_action, e)
+
+            # find optimal action for e at iter i: min(loss(e))
+            # update l_i 
+            # update a_i 
+    return l_i, a_i
 
 def main():
     opt_total_latency = float('inf')
@@ -31,24 +111,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
-def optimal_migration_trigger(gp_i):
-    l_i = [] #list of list, latency: len(l_i) = iter i, l_i[j] = the most updated latency for events up to step j at iter j
-    a_i = [] #list of list, action of i: len(l_i) = iter i, l_i[j] = the most updated optimal action seq for events up to step j at iter j
-    
-    for i, e in enumerate(gp_i):
-        if i == 0: continue
-        if e == "done":
-            return l_i, a_i
-        if i == 1:
-            get valid action space for e
-            find optimal action for e at iter i: min(loss(e))
-            update l_i
-            update a_i
-        else:
-            retrieve a_i[i-1] from a_i # each a_i is calculated based on a_i[i-1]: pai_star = J(pai_minus_1_star)
-            get valid action space for e based on a_i[i-1] # could be a smaller set than original valid set
-            find optimal action for e at iter i: min(loss(e))
-            update l_i 
-            update a_i 
