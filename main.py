@@ -34,19 +34,20 @@ def get_optimal_latency(action_space, curr_num, num_change):
     min_latency = float('inf')
     opt_action = None
     num_node = None
+    pri_flag, curr_flag = 1, 1
 
     for x in action_space:
+        if x[0] == '-':
+            pri_flag = 0
         if x[1] == '-':
-            flag = 0
-        else:
-            flag = 1
+            curr_flag = 0
         
         if x[1] == 'a':
             curr_num += num_change
         if x[1] == 'r':
             curr_num -= num_change
 
-        curr_latency = estimate_migration_time(flag) +  estimate_node_reduction_latency(curr_num)
+        curr_latency = estimate_migration_time(pri_flag) +  estimate_migration_time(curr_flag) +  estimate_node_reduction_latency(curr_num)
         if curr_latency < min_latency:
             opt_action, num_node = x, curr_num
             min_latency = curr_latency
@@ -73,11 +74,12 @@ def optimal_migration_trigger(gp_i):
     
     for i, e in enumerate(gp_i):
         if i == 0: 
+            a_i.append((None, e[1]))
             continue
         if i == 1:
             # Get valid action space for e
             first_event = gp_i[0]
-            action_space = get_action_space(first_event, e)
+            action_space = get_action_space(first_event[0], e[0])
             if first_event[0] == 'a':
                 curr_node += first_event[1]
 
@@ -87,19 +89,23 @@ def optimal_migration_trigger(gp_i):
             l_i.append(latency)
             # update a_i
             a_i.append((opt_action, num_node))
+            curr_node = num_node
         else:
-            # retrieve a_i[i-1] from a_i 
-            # each a_i is calculated based on a_i[i-1]: pai_star = J(pai_minus_1_star)
-            prior_action_seq, prior_num_node = a_i[i - 1][0], a_i[i - 1][1]
-            last_step_prior_action = prior_action_seq[-1]
+            # Retrieve a_i[i-1] from a_i 
+            # Each a_i is calculated based on a_i[i-1]: pai_star = J(pai_minus_1_star)
+            prior_action, prior_num_node = a_i[i - 1][0], a_i[i - 1][1]
+            last_step_prior_action = prior_action[1] if prior_action[1] != '-' else prior_action[0]
 
-            # get valid action space for e based on a_i[i-1]
-            action_space = get_action_space(last_step_prior_action, e)
+            # Get valid action space for e based on a_i[i-1]
+            action_space = get_action_space(last_step_prior_action[-1], e[0])
 
-            # find optimal action for e at iter i: min(loss(e))
+            # Find optimal action for e at iter i: min(latency(e))
+            latency, opt_action, num_node = get_optimal_latency(action_space, prior_num_node, e[1])
             # update l_i 
+            l_i.append(latency)
             # update a_i 
-    return l_i, a_i
+            a_i.append((opt_action, num_node))
+    return l_i[-1], a_i
 
 def main():
     opt_total_latency = float('inf')
@@ -108,6 +114,7 @@ def main():
     trace = [[('a', 5), ('r', 2), ('a', 1)], [('a', 2), ('a', 3), ('r', 1), ('r', 1)]]
 
     opt_total_latency, opt_action_gp = opt_strategy_gp(trace)
+    print(opt_total_latency, opt_action_gp)
 
 if __name__ == '__main__':
     main()
